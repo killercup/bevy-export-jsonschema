@@ -1,9 +1,9 @@
-use std::{collections::HashMap, io::Write};
+use std::io::Write;
 
 use bevy_app::App;
 use bevy_ecs::reflect::{AppTypeRegistry, ReflectComponent, ReflectResource};
-use bevy_reflect::{TypeInfo, TypeRegistration, VariantInfo};
-use serde_json::{json, Value};
+use bevy_reflect::{TypeInfo, TypePath, TypeRegistration, VariantInfo};
+use serde_json::{json, Map, Value};
 
 pub trait ExportTypesExt {
     fn export_types(&mut self, writer: impl Write);
@@ -13,15 +13,14 @@ impl ExportTypesExt for App {
     fn export_types(&mut self, writer: impl Write) {
         let types = self.world.resource_mut::<AppTypeRegistry>();
         let types = types.read();
-        let mut schemas = types.iter().map(export_type).collect::<Vec<_>>();
-        schemas.sort_by_key(|t| t.get("name").unwrap().as_str().unwrap().to_string());
+        let mut schemas = types.iter().map(export_type).collect::<Map<_, _>>();
 
         serde_json::to_writer_pretty(
             writer,
             &json!({
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "title": "bevy game schema",
-                "oneOf": schemas,
+                "$defs": schemas,
             }),
         )
         .expect("valid json");
@@ -30,7 +29,7 @@ impl ExportTypesExt for App {
     }
 }
 
-pub fn export_type(reg: &TypeRegistration) -> Value {
+pub fn export_type(reg: &TypeRegistration) -> (String, Value) {
     let t = reg.type_info();
     let mut schema = match t {
         TypeInfo::Struct(info) => {
@@ -39,15 +38,16 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
                 .enumerate()
                 .map(|(idx, field)| {
                     (
-                        field.name(),
-                        add_min_max(json!({ "type": field.type_path() }), reg, idx, None),
+                        field.name().to_owned(),
+                        add_min_max(json!({ "type": typ(field.type_path()) }), reg, idx, None),
                     )
                 })
-                .collect::<HashMap<_, _>>();
+                .collect::<Map<_, _>>();
 
             json!({
                 "type": "object",
-                "name": t.type_path(),
+                "typeInfo": "Struct",
+                "title": t.type_path(),
                 "properties": properties,
                 "additionalProperties": false,
                 "required": info
@@ -64,7 +64,7 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
             if simple {
                 json!({
                     "type": "string",
-                    "name": t.type_path(),
+                    "title": t.type_path(),
                     "enum": info
                         .iter()
                         .map(|variant| match variant {
@@ -80,16 +80,16 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
                 .map(|(field_idx, variant)| match variant {
                     VariantInfo::Struct(v) => json!({
                         "type": "object",
-                        "name": t.type_path(),
+                        "title": t.type_path(),
                         "properties": v
                             .iter()
                             .enumerate()
-                            .map(|(variant_idx, field)| (field.name(), add_min_max(json!({"type": field.type_path(), "name": field.name()}), reg, field_idx, Some(variant_idx))))
-                            .collect::<HashMap<_, _>>(),
+                            .map(|(variant_idx, field)| (field.name().to_owned(), add_min_max(json!({"type": typ(field.type_path()), "title": field.name()}), reg, field_idx, Some(variant_idx))))
+                            .collect::<Map<_, _>>(),
                         "additionalProperties": false,
                         "required": v
                             .iter()
-                            .filter(|field| field.type_path().starts_with("core::option::Option"))
+                            .filter(|field| !field.type_path().starts_with("core::option::Option"))
                             .map(|field| field.name())
                             .collect::<Vec<_>>(),
                     }),
@@ -98,7 +98,7 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
                         "prefixItems": v
                             .iter()
                             .enumerate()
-                            .map(|(variant_idx, field)| add_min_max(json!({"type": field.type_path()}), reg, field_idx, Some(variant_idx)))
+                            .map(|(variant_idx, field)| add_min_max(json!({"type": typ(field.type_path())}), reg, field_idx, Some(variant_idx)))
                             .collect::<Vec<_>>(),
                         "items": false,
                     }),
@@ -110,51 +110,58 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
 
                 json!({
                     "type": "object",
-                    "name": t.type_path(),
+                    "typeInfo": "Enum",
+                    "title": t.type_path(),
                     "oneOf": variants,
                 })
             }
         }
         TypeInfo::TupleStruct(info) => json!({
-            "name": t.type_path(),
+            "title": t.type_path(),
             "type": "array",
+            "typeInfo": "TupleStruct",
             "prefixItems": info
                 .iter()
                 .enumerate()
-                .map(|(idx, field)| add_min_max(json!({"type": field.type_path()}), reg, idx, None))
+                .map(|(idx, field)| add_min_max(json!({"type": typ(field.type_path())}), reg, idx, None))
                 .collect::<Vec<_>>(),
             "items": false,
         }),
         TypeInfo::List(info) => {
             json!({
-                "name": t.type_path(),
+                "title": t.type_path(),
                 "type": "array",
-                "items": json!({"type": info.type_path()}),
+                "typeInfo": "List",
+                "items": json!({"type": typ(info.type_path())}),
             })
         }
         TypeInfo::Array(info) => json!({
-            "name": t.type_path(),
+            "title": t.type_path(),
             "type": "array",
-            "items": json!({"type": info.type_path()}),
+            "typeInfo": "Array",
+            "items": json!({"type": typ(info.type_path())}),
         }),
         TypeInfo::Map(info) => json!({
-            "name": t.type_path(),
+            "title": t.type_path(),
             "type": "object",
-            "additionalProperties": json!({"type": info.type_path()}),
+            "typeInfo": "Map",
+            "additionalProperties": json!({"type": typ(info.type_path())}),
         }),
         TypeInfo::Tuple(info) => json!({
-            "name": t.type_path(),
+            "title": t.type_path(),
             "type": "array",
+            "typeInfo": "Tuple",
             "prefixItems": info
                 .iter()
                 .enumerate()
-                .map(|(idx, field)| add_min_max(json!({"type": field.type_path()}), reg, idx, None))
+                .map(|(idx, field)| add_min_max(json!({"type": typ(field.type_path())}), reg, idx, None))
                 .collect::<Vec<_>>(),
             "items": false,
         }),
         TypeInfo::Value(info) => json!({
-            "name": t.type_path(),
-            "type": info.type_path(),
+            "title": t.type_path(),
+            "type": map_json_type(info.type_path()),
+            "typeInfo": "Value",
         }),
     };
     schema.as_object_mut().unwrap().insert(
@@ -165,7 +172,21 @@ pub fn export_type(reg: &TypeRegistration) -> Value {
         "isResource".to_owned(),
         reg.data::<ReflectResource>().is_some().into(),
     );
-    schema
+    (t.type_path().to_owned(), schema)
+}
+
+fn typ(t: &str) -> Value {
+    json!({ "$ref": format!("#/$defs/{t}") })
+}
+
+fn map_json_type(t: &str) -> Value {
+    match t {
+        "bool" => "boolean".into(),
+        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128"
+        | "isize" | "f32" | "f64" => "number".into(),
+        "char" | "str" | "alloc::string::String" => "string".into(),
+        _ => typ(t),
+    }
 }
 
 fn add_min_max(
