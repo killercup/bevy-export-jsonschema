@@ -181,12 +181,13 @@ fn typ(t: &str) -> Value {
 
 fn map_json_type(t: &str) -> Value {
     match t {
-        "bool" => "boolean".into(),
+        "bool" => "boolean",
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128"
-        | "isize" | "f32" | "f64" => "number".into(),
-        "char" | "str" | "alloc::string::String" => "string".into(),
-        _ => typ(t),
+        | "isize" | "f32" | "f64" => "number",
+        "char" | "str" | "alloc::string::String" => "string",
+        _ => "object",
     }
+    .into()
 }
 
 fn add_min_max(
