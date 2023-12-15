@@ -1,8 +1,8 @@
 use std::{collections::HashMap, io::Write};
 
 use bevy_app::App;
-use bevy_ecs::reflect::AppTypeRegistry;
-use bevy_reflect::{TypeInfo, VariantInfo};
+use bevy_ecs::reflect::{AppTypeRegistry, ReflectComponent, ReflectResource};
+use bevy_reflect::{TypeInfo, TypeRegistration, VariantInfo};
 use serde_json::{json, Value};
 
 pub trait ExportTypesExt {
@@ -13,10 +13,7 @@ impl ExportTypesExt for App {
     fn export_types(&mut self, writer: impl Write) {
         let types = self.world.resource_mut::<AppTypeRegistry>();
         let types = types.read();
-        let mut schemas = types
-            .iter()
-            .map(|t| export_type(t.type_info()))
-            .collect::<Vec<_>>();
+        let mut schemas = types.iter().map(|t| export_type(t)).collect::<Vec<_>>();
         schemas.sort_by_key(|t| t.get("name").unwrap().as_str().unwrap().to_string());
 
         serde_json::to_writer_pretty(
@@ -33,8 +30,9 @@ impl ExportTypesExt for App {
     }
 }
 
-pub fn export_type(t: &TypeInfo) -> Value {
-    match t {
+pub fn export_type(reg: &TypeRegistration) -> Value {
+    let t = reg.type_info();
+    let mut schema = match t {
         TypeInfo::Struct(info) => {
             let properties = info
                 .iter()
@@ -147,5 +145,14 @@ pub fn export_type(t: &TypeInfo) -> Value {
             "name": t.type_path(),
             "type": info.type_path(),
         }),
-    }
+    };
+    schema.as_object_mut().unwrap().insert(
+        "isComponent".to_owned(),
+        reg.data::<ReflectComponent>().is_some().into(),
+    );
+    schema.as_object_mut().unwrap().insert(
+        "isResource".to_owned(),
+        reg.data::<ReflectResource>().is_some().into(),
+    );
+    schema
 }
