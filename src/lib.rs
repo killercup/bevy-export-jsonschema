@@ -13,7 +13,7 @@ impl ExportTypesExt for App {
     fn export_types(&mut self, writer: impl Write) {
         let types = self.world.resource_mut::<AppTypeRegistry>();
         let types = types.read();
-        let mut schemas = types.iter().map(|t| export_type(t)).collect::<Vec<_>>();
+        let mut schemas = types.iter().map(export_type).collect::<Vec<_>>();
         schemas.sort_by_key(|t| t.get("name").unwrap().as_str().unwrap().to_string());
 
         serde_json::to_writer_pretty(
