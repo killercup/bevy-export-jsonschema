@@ -132,20 +132,20 @@ pub fn export_type(reg: &TypeRegistration) -> (String, Value) {
                 "title": t.type_path(),
                 "type": "array",
                 "typeInfo": "List",
-                "items": json!({"type": typ(info.type_path())}),
+                "items": json!({"type": typ(info.item_type_path_table().path())}),
             })
         }
         TypeInfo::Array(info) => json!({
             "title": t.type_path(),
             "type": "array",
             "typeInfo": "Array",
-            "items": json!({"type": typ(info.type_path())}),
+            "items": json!({"type": typ(info.item_type_path_table().path())}),
         }),
         TypeInfo::Map(info) => json!({
             "title": t.type_path(),
             "type": "object",
             "typeInfo": "Map",
-            "additionalProperties": json!({"type": typ(info.type_path())}),
+            "additionalProperties": json!({"type": typ(info.value_type_path_table().path())}),
         }),
         TypeInfo::Tuple(info) => json!({
             "title": t.type_path(),
